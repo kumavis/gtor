@@ -8,7 +8,8 @@ import {
   // stream
   stream, streamWithContext, pipe, pump,
   // kumavis
-  asyncIterToProducer, connect, pipeline
+  asyncIterToProducer, connect, pipeline,
+  deferredStream, connectDeferred,
 } from '../src/index.js'
 
 const demoAsyncForEach = async () => {
@@ -228,6 +229,51 @@ const demoDuplex = async () => {
 
 };
 
+async function demoConnectDeferred () {
+
+  function makeProducer () {
+    const output = deferredStream()
+    const outputStream = output.stream
+
+    async function producer () {
+      for (const token of count(10)) {
+        console.log('node.inbound <--', token);
+        await outputStream.next(token);
+      }
+      outputStream.return();
+    }
+
+    return {
+      output,
+      done: producer(),
+    }
+  }
+
+  function makeConsumer () {
+    const input = deferredStream()
+    const inputStream = input.stream
+
+    async function consumer () {
+      for await (const token of inputStream) {
+        console.log('node.outbound -->', token);
+        await delay(Math.random() * 100);
+      }
+    }
+
+    return {
+      input,
+      done: consumer(),
+    }
+  }
+
+  await connectDeferred(
+    makeProducer(),
+    makeConsumer(),
+  )
+
+}
+
+
 
 
 (async () => {
@@ -242,4 +288,5 @@ const demoDuplex = async () => {
   await demoStreamTimeout();
   await demoConnect();
   await demoDuplex();
+  await demoConnectDeferred();
 })();

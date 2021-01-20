@@ -216,7 +216,6 @@ export async function connect (producer, consumer) {
 }
 
 export async function pipeline (...duplexes) {
-  console.log(duplexes)
   const connections = []
   for (const _index in duplexes) {
     const index = parseInt(_index)
@@ -228,4 +227,48 @@ export async function pipeline (...duplexes) {
     )
   }
   await Promise.all(connections)
+}
+
+export const deferredQueue = () => {
+  const queueP = defer();
+  return {
+    put(value) {
+      queueP.promise.then((queue) => {
+        queue.put(value)
+      })
+    },
+    get() {
+      const promise = queueP.promise.then((queue) => {
+        return queue.get()
+      })
+      return promise
+    },
+    setQueue(queue) {
+      // todo: only allow once
+      queueP.resolve(queue)
+    }
+  }
+}
+
+export const deferredStream = () => {
+  const left = deferredQueue();
+  const right = deferredQueue();
+  const _stream = stream(left, right);
+  return { stream: _stream, left, right }
+}
+
+export const connectDeferred = async (producer, consumer) => {
+  const syn = queue()
+  const ack = queue()
+  // const input = stream(syn, ack);
+  consumer.input.left.setQueue(syn)
+  consumer.input.right.setQueue(ack)
+  // const output = stream(ack, syn);
+  producer.output.left.setQueue(ack)
+  producer.output.right.setQueue(syn)
+  // await completion on both
+  await Promise.all([
+    producer.done,
+    consumer.done,
+  ])
 }
