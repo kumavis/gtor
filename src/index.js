@@ -254,18 +254,20 @@ export const deferredStream = () => {
   const left = deferredQueue();
   const right = deferredQueue();
   const _stream = stream(left, right);
-  return { stream: _stream, left, right }
+  const setQueues = (_left, _right) => {
+    left.setQueue(_left)
+    right.setQueue(_right)
+  }
+  return { stream: _stream, left, right, setQueues }
 }
 
 export const connectDeferred = async (producer, consumer) => {
   const syn = queue()
   const ack = queue()
   // const input = stream(syn, ack);
-  consumer.input.left.setQueue(syn)
-  consumer.input.right.setQueue(ack)
+  consumer.input.setQueues(syn, ack)
   // const output = stream(ack, syn);
-  producer.output.left.setQueue(ack)
-  producer.output.right.setQueue(syn)
+  producer.output.setQueues(ack, syn)
   // await completion on both
   await Promise.all([
     producer.done,
