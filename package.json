@@ -8,6 +8,9 @@
     "example": "example"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "ava test/test-*.js"
+  },
+  "devDependencies": {
+    "ava": "^5.2.0"
   }
 }

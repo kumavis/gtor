@@ -38,7 +38,7 @@ export const parallelReduce = async (limit, zero, values, callback) => {
   return asyncReduce(zero, values, callback);
 };
 
-export const defer = () => {
+export const makePromiseKit = () => {
   let resolve, reject;
   const promise = new Promise((res, rej) => {
     resolve = res;
@@ -47,11 +47,11 @@ export const defer = () => {
   return { promise, resolve, reject };
 };
 
-export const queue = () => {
-  const ends = defer();
+export const makeQueue = () => {
+  const ends = makePromiseKit();
   return {
     put(value) {
-      const next = defer();
+      const next = makePromiseKit();
       const promise = next.promise;
       ends.resolve({ value, promise });
       ends.resolve = next.resolve;
@@ -68,7 +68,7 @@ export const queue = () => {
 // which threads two queues,
 // up = for writing values to
 // down = for awaiting readiness
-export const stream = (up, down) => ({
+export const makeStream = (up, down) => ({
   next(value) {
     up.put({ value, done: false });
     return down.get();
@@ -89,11 +89,11 @@ export const stream = (up, down) => ({
 // pipe creates a pipe, for connecting consumer and producer
 // output = inbox, for the producer to populate
 // input = outbox, for the consumer to read from
-export const pipe = () => {
-  const syn = queue();
-  const ack = queue();
-  const input = stream(syn, ack);
-  const output = stream(ack, syn);
+export const makePipe = () => {
+  const syn = makeQueue();
+  const ack = makeQueue();
+  const input = makeStream(syn, ack);
+  const output = makeStream(ack, syn);
   return [input, output];
 };
 
@@ -133,13 +133,13 @@ export async function *asyncMap(values, callback) {
 }
 
 export const parallelMap = (limit, values, callback) => {
-  const [input, output] = pipe();
+  const [input, output] = makePipe();
   parallel(limit, () => pump(input, asyncMap(values, callback)));
   return output;
 }
 
 export const delayWithContext = (context, ms) => {
-  const { promise, resolve, reject } = defer();
+  const { promise, resolve, reject } = makePromiseKit();
   let handle = setTimeout(resolve, ms);
   context.cancelled.catch((error) => {
     reject(error);
@@ -148,7 +148,7 @@ export const delayWithContext = (context, ms) => {
   return promise;
 };
 
-export const never = defer().promise;
+export const never = makePromiseKit().promise;
 
 export const background = Object.freeze({
   cancelled: never,
@@ -176,7 +176,7 @@ export const background = Object.freeze({
     return context.with({ deadline });
   },
   withCancel() {
-    const { promise, reject } = defer();
+    const { promise, reject } = makePromiseKit();
     const context = this.with({ cancelled: promise });
     this.cancelled.catch(reject);
     return {cancel: reject, context};
@@ -200,6 +200,12 @@ export const streamWithContext = (context, stream) => ({
 
 // kumavis experiments
 
+export async function *asyncIterFromQueue(queue) {
+  while (true) {
+    yield await queue.get();
+  }
+}
+
 export function asyncIterToProducer(asyncGen) {
   return async function producer (output) {
     const input = asyncGen();
@@ -208,7 +214,7 @@ export function asyncIterToProducer(asyncGen) {
 }
 
 export async function connect (producer, consumer) {
-  const [input, output] = pipe();
+  const [input, output] = makePipe();
   await Promise.all([
     producer(output),
     consumer(input),
@@ -230,7 +236,7 @@ export async function pipeline (...duplexes) {
 }
 
 export const deferredQueue = () => {
-  const queueP = defer();
+  const queueP = makePromiseKit();
   return {
     put(value) {
       queueP.promise.then((queue) => {
@@ -253,7 +259,7 @@ export const deferredQueue = () => {
 export const deferredStream = () => {
   const left = deferredQueue();
   const right = deferredQueue();
-  const _stream = stream(left, right);
+  const _stream = makeStream(left, right);
   const setQueues = (_left, _right) => {
     left.setQueue(_left)
     right.setQueue(_right)
@@ -262,8 +268,8 @@ export const deferredStream = () => {
 }
 
 export const connectDeferred = async (producer, consumer) => {
-  const syn = queue()
-  const ack = queue()
+  const syn = makeQueue()
+  const ack = makeQueue()
   // const input = stream(syn, ack);
   consumer.input.setQueues(syn, ack)
   // const output = stream(ack, syn);
