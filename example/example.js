@@ -6,7 +6,7 @@ import {
   // parallel
   parallelForEach, parallelMap, parallelReduce,
   // stream
-  stream, streamWithContext, pipe, pump,
+  makeStream, streamWithContext, makePipe, pump,
   // kumavis
   asyncIterToProducer, connect, pipeline,
   deferredStream, connectDeferred,
@@ -47,26 +47,26 @@ const demoPipe = async () => {
   console.log('demo pipe');
 
   // eager producer
-  const producer = async (output) => {
+  const producer = async (source) => {
     for (const token of count(10)) {
       console.log(token, '->');
-      await output.next(token);
+      await source.next(token);
     }
-    output.return();
+    source.return();
   };
 
-  const consumer = async (input) => {
-    for await (const token of input) {
+  const consumer = async (sink) => {
+    for await (const token of sink) {
       console.log('->', token);
       await delay(Math.random() * 100);
     }
   };
 
-  const [input, output] = pipe();
+  const [sink, source] = makePipe();
 
   await Promise.all([
-    producer(output),
-    consumer(input),
+    producer(source),
+    consumer(sink),
   ]);
 };
 
@@ -89,10 +89,10 @@ const demoPump = async () => {
     }
   };
 
-  const [input, output] = pipe();
+  const [input, output] = makePipe();
 
   await Promise.all([
-    pump(output, producer()),
+    pump(producer(), output),
     consumer(input),
   ]);
 };
@@ -231,44 +231,42 @@ const demoDuplex = async () => {
 
 async function demoConnectDeferred () {
 
-  function makeProducer () {
-    const output = deferredStream()
-    const outputStream = output.stream
+  function makeDeferredProducer () {
+    const stream = deferredStream()
 
     async function producer () {
       for (const token of count(10)) {
         console.log('node.inbound <--', token);
-        await outputStream.next(token);
+        await stream.next(token);
       }
-      outputStream.return();
+      stream.return();
     }
 
     return {
-      output,
+      stream,
       done: producer(),
     }
   }
 
-  function makeConsumer () {
-    const input = deferredStream()
-    const inputStream = input.stream
+  function makeDefferedConsumer () {
+    const stream = deferredStream()
 
     async function consumer () {
-      for await (const token of inputStream) {
+      for await (const token of stream) {
         console.log('node.outbound -->', token);
         await delay(Math.random() * 100);
       }
     }
 
     return {
-      input,
+      stream,
       done: consumer(),
     }
   }
 
   await connectDeferred(
-    makeProducer(),
-    makeConsumer(),
+    makeDeferredProducer(),
+    makeDefferedConsumer(),
   )
 
 }

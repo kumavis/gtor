@@ -89,7 +89,7 @@ export const makeMutex = () => {
   };
 }
 
-// stream creates a stream, which waits for the consumer
+// makeStream creates a stream, which waits for the consumer
 // which threads two queues,
 // up = for writing values to
 // down = for awaiting readiness
@@ -111,34 +111,34 @@ export const makeStream = (up, down) => ({
   },
 });
 
-// pipe creates a pipe, for connecting consumer and producer
-// output = inbox, for the producer to populate
-// input = outbox, for the consumer to read from
+// makePipe creates a pipe, for connecting consumer and producer
+// source = inbox, for the producer to populate
+// sink = outbox, for the consumer to read from
 export const makePipe = () => {
   const syn = makeQueue();
   const ack = makeQueue();
-  const input = makeStream(syn, ack);
-  const output = makeStream(ack, syn);
-  return [input, output];
+  const sink = makeStream(syn, ack);
+  const source = makeStream(ack, syn);
+  return [sink, source];
 };
 
 // pump pulls from one stream and pushes to another.
-// The pump slows down for output back-pressure.
+// The pump slows down for sink back-pressure.
 // (connects async iter to queue)
 // ?? language? stream / async iter?
-// output = stream where values are written to
-// input = async iter where values are pulled from
-export const pump = async (output, input) => {
+// source = async iter where values are pulled from
+// sink = stream where values are written to
+export const pump = async (source, sink) => {
   try {
     let value, done;
-    while ({value, done} = await input.next()) {
+    while ({value, done} = await source.next()) {
       if (done) {
-        return output.return(value);
+        return sink.return(value);
       }
-      await output.next(value);
+      await sink.next(value);
     }
   } catch (error) {
-    return output.throw(error);
+    return sink.throw(error);
   }
 };
 
@@ -158,9 +158,9 @@ export async function *asyncMap(values, callback) {
 }
 
 export const parallelMap = (limit, values, callback) => {
-  const [input, output] = makePipe();
-  parallel(limit, () => pump(input, asyncMap(values, callback)));
-  return output;
+  const [sink, source] = makePipe();
+  parallel(limit, () => pump(asyncMap(values, callback), sink));
+  return source;
 }
 
 export const delayWithContext = (context, ms) => {
@@ -232,17 +232,18 @@ export async function *asyncIterFromQueue(queue) {
 }
 
 export function asyncIterToProducer(asyncGen) {
-  return async function producer (output) {
-    const input = asyncGen();
-    return pump(output, input);
+  return async function producer (sink) {
+    const source = asyncGen();
+    // TODO verify arg order
+    return pump(source, sink);
   }
 }
 
 export async function connect (producer, consumer) {
-  const [input, output] = makePipe();
+  const [sink, source] = makePipe();
   await Promise.all([
-    producer(output),
-    consumer(input),
+    producer(source),
+    consumer(sink),
   ]);
 }
 
@@ -282,26 +283,24 @@ export const deferredQueue = () => {
 }
 
 export const deferredStream = () => {
-  const left = deferredQueue();
-  const right = deferredQueue();
-  const _stream = makeStream(left, right);
-  const setQueues = (_left, _right) => {
-    left.setQueue(_left)
-    right.setQueue(_right)
+  const up = deferredQueue();
+  const down = deferredQueue();
+  const stream = makeStream(up, down);
+  stream.setQueues = (_up, _down) => {
+    up.setQueue(_up)
+    down.setQueue(_down)
   }
-  return { stream: _stream, left, right, setQueues }
+  return stream
 }
 
-export const connectDeferred = async (producer, consumer) => {
+export const connectDeferred = async (deferredProducer, deferredConsumer) => {
   const syn = makeQueue()
   const ack = makeQueue()
-  // const input = stream(syn, ack);
-  consumer.input.setQueues(syn, ack)
-  // const output = stream(ack, syn);
-  producer.output.setQueues(ack, syn)
+  deferredConsumer.stream.setQueues(syn, ack)
+  deferredProducer.stream.setQueues(ack, syn)
   // await completion on both
   await Promise.all([
-    producer.done,
-    consumer.done,
+    deferredProducer.done,
+    deferredConsumer.done,
   ])
 }
