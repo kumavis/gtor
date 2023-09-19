@@ -64,6 +64,31 @@ export const makeQueue = () => {
   };
 };
 
+export const makeMutex = () => {
+  const queue = makeQueue();
+  const lock = () => {
+    return queue.get()
+  }
+  const unlock = () => {
+    queue.put()
+  }
+  unlock()
+
+  return {
+    lock,
+    unlock,
+    // helper for correct usage
+    enqueue: async (asyncFn) => {
+      await lock()
+      try {
+        return await asyncFn()
+      } finally {
+        unlock()
+      }
+    }
+  };
+}
+
 // stream creates a stream, which waits for the consumer
 // which threads two queues,
 // up = for writing values to
